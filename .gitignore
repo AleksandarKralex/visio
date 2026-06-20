@@ -7,3 +7,5 @@ dist/
 Thumbs.db
 deploy.py
 *.sh
+__pycache__/
+*.pyc
