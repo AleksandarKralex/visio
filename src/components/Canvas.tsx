@@ -42,8 +42,10 @@ export const Canvas: React.FC = () => {
   const [selBox, setSelBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [connectLine, setConnectLine] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const [hoveredShape, setHoveredShape] = useState<string | null>(null);
+  const [hoveredPort, setHoveredPort] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [connectingSide, setConnectingSide] = useState<string | null>(null);
 
   const {
     file, activeTool, selectedIds, canvas, showGrid,
@@ -101,19 +103,22 @@ export const Canvas: React.FC = () => {
   }, [handleWheel]);
 
   // Start connection from a shape or a port
-  const startConnect = useCallback((shapeId: string, portX: number, portY: number) => {
+  const startConnect = useCallback((shapeId: string, portX: number, portY: number, side?: string) => {
     setConnectingFrom(shapeId);
+    setConnectingSide(side ?? null);
     setConnectLine({ x1: portX, y1: portY, x2: portX, y2: portY });
   }, [setConnectingFrom]);
 
-  // Complete connection to a shape
-  const completeConnect = useCallback((targetId: string) => {
+  // Complete connection to a shape or port
+  const completeConnect = useCallback((targetId: string, targetSide?: string) => {
     if (connectingFrom && connectingFrom !== targetId) {
-      addConnection(connectingFrom, targetId);
+      addConnection(connectingFrom, targetId, undefined, undefined, undefined, undefined,
+        connectingSide ?? undefined, targetSide);
     }
     setConnectingFrom(null);
+    setConnectingSide(null);
     setConnectLine(null);
-  }, [connectingFrom, addConnection, setConnectingFrom]);
+  }, [connectingFrom, connectingSide, addConnection, setConnectingFrom]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0 && e.button !== 1) return;
@@ -315,12 +320,12 @@ export const Canvas: React.FC = () => {
   }, [activeTool, selectedIds, connectingFrom, page, svgToCanvas,
     setSelectedIds, addToSelection, pushHistory, startConnect, completeConnect]);
 
-  const handlePortMouseDown = useCallback((e: React.MouseEvent, shapeId: string, portX: number, portY: number) => {
+  const handlePortMouseDown = useCallback((e: React.MouseEvent, shapeId: string, portX: number, portY: number, portSide: string) => {
     e.stopPropagation();
     if (connectingFrom) {
-      completeConnect(shapeId);
+      completeConnect(shapeId, portSide);
     } else {
-      startConnect(shapeId, portX, portY);
+      startConnect(shapeId, portX, portY, portSide);
     }
   }, [connectingFrom, startConnect, completeConnect]);
 
@@ -339,6 +344,13 @@ export const Canvas: React.FC = () => {
     e.stopPropagation();
     const shape = page.shapes.find(s => s.id === shapeId);
     if (!shape) return;
+
+    // QualyPro process shape → expand/collapse
+    if (shape.qualypro?.processId) {
+      useStore.getState().expandProcess(shapeId);
+      return;
+    }
+
     setEditingId(shapeId);
     setEditValue(shape.label);
     setTimeout(() => {
@@ -401,13 +413,38 @@ export const Canvas: React.FC = () => {
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    const type = e.dataTransfer.getData('shape-type') as ShapeType;
-    if (!type) return;
     const rect = svgRef.current!.getBoundingClientRect();
     const cx = (e.clientX - rect.left - panX) / zoom;
     const cy = (e.clientY - rect.top - panY) / zoom;
-    addShape(type, snapToGrid(cx - 60, gridSize, page?.snapToGrid ?? true),
-      snapToGrid(cy - 40, gridSize, page?.snapToGrid ?? true));
+    const snapX = (v: number) => snapToGrid(v, gridSize, page?.snapToGrid ?? true);
+
+    // QualyPro process drop
+    const qpData = e.dataTransfer.getData('application/qualypro-process');
+    if (qpData) {
+      try {
+        const proc = JSON.parse(qpData);
+        const id = addShape('rounded-rectangle', snapX(cx - 80), snapX(cy - 30), 160, 60);
+        setTimeout(() => {
+          useStore.getState().updateShape(id, {
+            label: `▶ ${proc.code}\n${proc.name}`,
+            qualypro: {
+              processId: proc.id, processName: proc.name,
+              processCode: proc.code, category: proc.category, raci: proc.raci,
+            },
+            style: {
+              fill: '#eff6ff', stroke: '#3b82f6', strokeWidth: 2,
+              strokeDasharray: '', opacity: 1, shadow: false, cornerRadius: 8,
+            },
+          });
+        }, 10);
+      } catch { /* ignore */ }
+      return;
+    }
+
+    // Standard shape drop
+    const type = e.dataTransfer.getData('shape-type') as ShapeType;
+    if (!type) return;
+    addShape(type, snapX(cx - 60), snapX(cy - 40));
   }, [panX, panY, zoom, gridSize, page, addShape]);
 
   const sortedShapes = [...(page?.shapes ?? [])].sort((a, b) => a.zIndex - b.zIndex);
@@ -528,37 +565,45 @@ export const Canvas: React.FC = () => {
             const isSelected = selectedIds.includes(shape.id);
             if (!isHovered && !isSelected && connectingFrom !== shape.id) return null;
 
-            return getShapePorts(shape).map(port => (
-              <g key={`${shape.id}-${port.side}`}>
-                {/* Large invisible hit area */}
-                <circle
-                  cx={port.cx} cy={port.cy}
-                  r={PORT_HIT_RADIUS / zoom}
-                  fill="transparent"
-                  stroke="none"
-                  style={{ cursor: 'crosshair' }}
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    handlePortMouseDown(e, shape.id, port.cx, port.cy);
-                  }}
-                />
-                {/* Visual port circle */}
-                <circle
-                  cx={port.cx} cy={port.cy}
-                  r={PORT_RADIUS / zoom}
-                  fill="white"
-                  stroke="#0066CC"
-                  strokeWidth={2 / zoom}
-                  pointerEvents="none"
-                />
-                <circle
-                  cx={port.cx} cy={port.cy}
-                  r={3 / zoom}
-                  fill="#0066CC"
-                  pointerEvents="none"
-                />
-              </g>
-            ));
+            return getShapePorts(shape).map(port => {
+              const portKey = `${shape.id}-${port.side}`;
+              const isPortHovered = hoveredPort === portKey;
+              return (
+                <g key={portKey}>
+                  {/* Large invisible hit area */}
+                  <circle
+                    cx={port.cx} cy={port.cy}
+                    r={PORT_HIT_RADIUS / zoom}
+                    fill="transparent"
+                    stroke="none"
+                    style={{ cursor: 'crosshair' }}
+                    onMouseEnter={() => setHoveredPort(portKey)}
+                    onMouseLeave={() => setHoveredPort(null)}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      handlePortMouseDown(e, shape.id, port.cx, port.cy, port.side);
+                    }}
+                  />
+                  {/* Visual port circle */}
+                  <circle
+                    cx={port.cx} cy={port.cy}
+                    r={(isPortHovered ? PORT_RADIUS + 3 : PORT_RADIUS) / zoom}
+                    fill={isPortHovered ? '#0066CC' : 'white'}
+                    stroke="#0066CC"
+                    strokeWidth={2 / zoom}
+                    pointerEvents="none"
+                  />
+                  {!isPortHovered && (
+                    <circle
+                      cx={port.cx} cy={port.cy}
+                      r={3 / zoom}
+                      fill="#0066CC"
+                      pointerEvents="none"
+                    />
+                  )}
+                </g>
+              );
+            });
           })}
 
           {/* Resize handles */}

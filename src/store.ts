@@ -5,6 +5,91 @@ import type {
   Tool, CanvasState, ShapeStyle, TextStyle, ShapeType
 } from './types';
 
+// ── Embed mode ─────────────────────────────────────────────────────────────────
+const _params = new URLSearchParams(location.search);
+export const EMBED_PROCESS_ID = _params.get('processId');
+export const EMBED_MAP_MODE   = _params.get('mode') === 'map';
+export const IS_EMBEDDED      = !!EMBED_PROCESS_ID || EMBED_MAP_MODE;
+const QUALYPRO_API            = '/qualypro';
+
+export interface ProcessMapMeta {
+  id: string;
+  name: string;
+  updatedAt: string;
+  createdBy: { id: string; name: string | null; email: string } | null;
+}
+
+async function apiLoadDiagram(): Promise<{ file: DiagramFile | null; mapId: string | null }> {
+  try {
+    if (EMBED_PROCESS_ID) {
+      const r = await fetch(`${QUALYPRO_API}/api/processes/${EMBED_PROCESS_ID}/diagram`, { credentials: 'include' });
+      if (!r.ok) return { file: null, mapId: null };
+      const { diagramJson } = await r.json();
+      return { file: diagramJson ? (JSON.parse(diagramJson) as DiagramFile) : null, mapId: null };
+    }
+
+    // Map mode: deep-link via ?fileId=, altrimenti cea mai recent actualizata harta din biblioteca
+    let mapId = _params.get('fileId');
+    if (!mapId) {
+      const listRes = await fetch(`${QUALYPRO_API}/api/diagrams`, { credentials: 'include' });
+      if (listRes.ok) {
+        const list = (await listRes.json()) as ProcessMapMeta[];
+        if (list.length > 0) mapId = list[0].id;
+      }
+    }
+    if (!mapId) return { file: null, mapId: null };
+
+    const r = await fetch(`${QUALYPRO_API}/api/diagrams/${mapId}`, { credentials: 'include' });
+    if (!r.ok) return { file: null, mapId: null };
+    const data = await r.json();
+    return { file: JSON.parse(data.diagramJson) as DiagramFile, mapId };
+  } catch { return { file: null, mapId: null }; }
+}
+
+/** Salveaza; intoarce id-ul hartii (poate fi diferit de mapId daca abia s-a creat una noua). */
+export async function apiSaveDiagram(file: DiagramFile, mapId: string | null): Promise<string | null> {
+  try {
+    if (EMBED_PROCESS_ID) {
+      await fetch(`${QUALYPRO_API}/api/processes/${EMBED_PROCESS_ID}/diagram`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ diagramJson: JSON.stringify(file) }),
+      });
+      return null;
+    }
+
+    if (mapId) {
+      await fetch(`${QUALYPRO_API}/api/diagrams/${mapId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: file.name, diagramJson: JSON.stringify(file) }),
+      });
+      return mapId;
+    }
+
+    // Nicio harta incarcata inca (biblioteca goala) — prima salvare creaza una noua.
+    const r = await fetch(`${QUALYPRO_API}/api/diagrams`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: file.name, diagramJson: JSON.stringify(file) }),
+    });
+    if (!r.ok) return null;
+    const { id } = await r.json();
+    return id as string;
+  } catch { return mapId; }
+}
+
+export async function apiListProcessMaps(): Promise<ProcessMapMeta[]> {
+  try {
+    const r = await fetch(`${QUALYPRO_API}/api/diagrams`, { credentials: 'include' });
+    if (!r.ok) return [];
+    return (await r.json()) as ProcessMapMeta[];
+  } catch { return []; }
+}
+
 const defaultTextStyle: TextStyle = {
   fontSize: 13,
   fontFamily: 'Inter, sans-serif',
@@ -69,12 +154,23 @@ interface AppState {
   showProperties: boolean;
   showShapePanel: boolean;
   connectingFrom: string | null;
+  lastSavedAt: string | null;
+  raciPersonFilter: string | null;       // person ID currently highlighted
+  embedLoading: boolean;
+  mapFileId: string | null;              // ProcessMap.id curent (doar in mode=map), null = nesalvat inca
 
   // File actions
   setFileName: (name: string) => void;
   newFile: () => void;
   exportJSON: () => void;
   importJSON: (json: string) => void;
+  autoSave: () => void;
+  loadEmbedDiagram: () => Promise<void>;
+  openProcessMap: (id: string) => Promise<void>;
+  saveProcessMapAs: (name: string) => Promise<void>;
+  setRaciPersonFilter: (personId: string | null) => void;
+  expandProcess: (shapeId: string) => Promise<void>;
+  collapseProcess: (shapeId: string) => void;
 
   // Page actions
   addPage: () => void;
@@ -90,7 +186,7 @@ interface AppState {
   duplicateShapes: (ids: string[]) => void;
 
   // Connection actions
-  addConnection: (sourceId: string, targetId: string, sx?: number, sy?: number, tx?: number, ty?: number) => void;
+  addConnection: (sourceId: string, targetId: string, sx?: number, sy?: number, tx?: number, ty?: number, sourceSide?: string, targetSide?: string) => void;
   updateConnection: (id: string, updates: Partial<DiagramConnection>) => void;
   removeConnections: (ids: string[]) => void;
 
@@ -160,8 +256,18 @@ function updateActivePage(file: DiagramFile, updater: (page: Page) => Page): Dia
   };
 }
 
+const AUTO_SAVE_KEY = 'diagramflow-autosave';
+
+function loadSavedFile(): DiagramFile {
+  try {
+    const s = localStorage.getItem(AUTO_SAVE_KEY);
+    if (s) return JSON.parse(s) as DiagramFile;
+  } catch {}
+  return createDefaultFile();
+}
+
 export const useStore = create<AppState>((set, get) => ({
-  file: createDefaultFile(),
+  file: IS_EMBEDDED ? createDefaultFile() : loadSavedFile(),
   activeTool: 'select',
   selectedIds: [],
   canvas: { zoom: 1, panX: 0, panY: 0 },
@@ -170,15 +276,24 @@ export const useStore = create<AppState>((set, get) => ({
   clipboard: [],
   showGrid: true,
   showRuler: true,
-  showProperties: true,
+  showProperties: !IS_EMBEDDED,
   showShapePanel: true,
   connectingFrom: null,
+  lastSavedAt: IS_EMBEDDED ? null : (localStorage.getItem(AUTO_SAVE_KEY) ? new Date().toISOString() : null),
+  raciPersonFilter: null,
+  embedLoading: IS_EMBEDDED,
+  mapFileId: null,
 
-  setFileName: (name) => set(s => ({ file: { ...s.file, name } })),
+  setFileName: (name) => set(s => ({
+    file: { ...s.file, name, updatedAt: new Date().toISOString() },
+  })),
 
   newFile: () => {
+    if (EMBED_PROCESS_ID) return; // diagrama unui singur proces: slot fix, nu se schimba
+    if (!EMBED_MAP_MODE) localStorage.removeItem(AUTO_SAVE_KEY);
     const file = createDefaultFile();
-    set({ file, selectedIds: [], history: [], historyIndex: -1 });
+    if (EMBED_MAP_MODE) file.name = 'Hartă nouă';
+    set({ file, mapFileId: null, selectedIds: [], history: [], historyIndex: -1, lastSavedAt: null });
   },
 
   exportJSON: () => {
@@ -191,15 +306,225 @@ export const useStore = create<AppState>((set, get) => ({
     a.download = `${file.name}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    // Treat manual export as a save point
+    localStorage.setItem(AUTO_SAVE_KEY, json);
+    set({ lastSavedAt: new Date().toISOString() });
   },
 
   importJSON: (json) => {
     try {
       const file = JSON.parse(json) as DiagramFile;
-      set({ file, selectedIds: [], history: [], historyIndex: -1 });
+      const now = new Date().toISOString();
+      localStorage.setItem(AUTO_SAVE_KEY, json);
+      set({ file, selectedIds: [], history: [], historyIndex: -1, lastSavedAt: now });
     } catch (e) {
       console.error('Invalid JSON file');
     }
+  },
+
+  autoSave: () => {
+    const { file, mapFileId } = get();
+    const json = JSON.stringify(file);
+    if (IS_EMBEDDED) {
+      apiSaveDiagram(file, mapFileId).then(id => {
+        if (id && id !== mapFileId) set({ mapFileId: id });
+      });
+    } else {
+      localStorage.setItem(AUTO_SAVE_KEY, json);
+    }
+    set({ lastSavedAt: new Date().toISOString() });
+  },
+
+  loadEmbedDiagram: async () => {
+    set({ embedLoading: true });
+    const { file, mapId } = await apiLoadDiagram();
+    const processName = _params.get('processName') ?? 'Untitled';
+    if (file) {
+      set({ file, mapFileId: mapId, embedLoading: false, selectedIds: [], history: [], historyIndex: -1, lastSavedAt: new Date().toISOString() });
+    } else {
+      const def = createDefaultFile();
+      def.name = EMBED_MAP_MODE ? 'Hartă nouă' : processName;
+      set({ file: def, mapFileId: mapId, embedLoading: false });
+    }
+  },
+
+  openProcessMap: async (id) => {
+    set({ embedLoading: true });
+    try {
+      const r = await fetch(`${QUALYPRO_API}/api/diagrams/${id}`, { credentials: 'include' });
+      if (r.ok) {
+        const data = await r.json();
+        const file = JSON.parse(data.diagramJson) as DiagramFile;
+        set({ file, mapFileId: id, embedLoading: false, selectedIds: [], history: [], historyIndex: -1, lastSavedAt: new Date().toISOString() });
+        const url = new URL(window.location.href);
+        url.searchParams.set('fileId', id);
+        window.history.replaceState({}, '', url);
+        return;
+      }
+    } catch { /* silent */ }
+    set({ embedLoading: false });
+  },
+
+  saveProcessMapAs: async (name) => {
+    const { file } = get();
+    const now = new Date().toISOString();
+    const newFileState: DiagramFile = { ...file, name, updatedAt: now };
+    try {
+      const r = await fetch(`${QUALYPRO_API}/api/diagrams`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, diagramJson: JSON.stringify(newFileState) }),
+      });
+      if (r.ok) {
+        const { id } = await r.json();
+        set({ file: newFileState, mapFileId: id, lastSavedAt: now });
+        const url = new URL(window.location.href);
+        url.searchParams.set('fileId', id);
+        window.history.replaceState({}, '', url);
+      }
+    } catch { /* silent */ }
+  },
+
+  setRaciPersonFilter: (personId) => set({ raciPersonFilter: personId }),
+
+  expandProcess: async (shapeId) => {
+    const page = getActivePage(get().file);
+    const shape = page.shapes.find(s => s.id === shapeId);
+    if (!shape?.qualypro?.processId) return;
+    if (shape.qualypro.expanded) { get().collapseProcess(shapeId); return; }
+
+    const { processId, processName } = shape.qualypro;
+    try {
+      const r = await fetch(`${QUALYPRO_API}/api/processes/${processId}/diagram`, { credentials: 'include' });
+      if (!r.ok) return;
+      const { diagramJson } = await r.json();
+
+      const subShapeIds: string[] = [];
+      const injectedShapes: DiagramShape[] = [];
+      const injectedConns: DiagramConnection[] = [];
+
+      const MARGIN = 40;
+      const HEADER_H = 36;
+      let targetX = shape.x + shape.width + 100;
+      let targetY = shape.y;
+
+      const containerId = uuidv4();
+      subShapeIds.push(containerId);
+
+      if (diagramJson) {
+        const subFile = JSON.parse(diagramJson) as DiagramFile;
+        const subPage = subFile.pages[0];
+        if (subPage?.shapes.length) {
+          const minX = Math.min(...subPage.shapes.map(s => s.x));
+          const minY = Math.min(...subPage.shapes.map(s => s.y));
+          const maxX = Math.max(...subPage.shapes.map(s => s.x + s.width));
+          const maxY = Math.max(...subPage.shapes.map(s => s.y + s.height));
+          const subW = maxX - minX;
+          const subH = maxY - minY;
+          targetY = shape.y - subH / 2 + shape.height / 2;
+
+          // Container background
+          injectedShapes.push({
+            id: containerId, type: 'rectangle',
+            x: targetX - MARGIN, y: targetY - HEADER_H,
+            width: subW + MARGIN * 2, height: subH + MARGIN * 2 + HEADER_H,
+            label: processName,
+            style: { fill: '#eff6ff', stroke: '#3b82f6', strokeWidth: 2, strokeDasharray: '', opacity: 1, shadow: false, cornerRadius: 12 },
+            textStyle: { ...defaultTextStyle, fontSize: 11, fontWeight: 'bold', verticalAlign: 'top' },
+            rotation: 0, locked: true, zIndex: shape.zIndex,
+          });
+
+          // Sub-shapes
+          const idMap = new Map<string, string>();
+          for (const ss of subPage.shapes) {
+            const newId = uuidv4();
+            idMap.set(ss.id, newId);
+            subShapeIds.push(newId);
+            injectedShapes.push({
+              ...ss, id: newId,
+              x: targetX + (ss.x - minX),
+              y: targetY + (ss.y - minY),
+              zIndex: shape.zIndex + 1,
+            });
+          }
+          for (const sc of subPage.connections) {
+            const newId = uuidv4();
+            subShapeIds.push(newId);
+            injectedConns.push({
+              ...sc, id: newId,
+              sourceId: idMap.get(sc.sourceId) ?? sc.sourceId,
+              targetId: idMap.get(sc.targetId) ?? sc.targetId,
+            });
+          }
+        }
+      } else {
+        // No diagram yet — show placeholder
+        injectedShapes.push({
+          id: containerId, type: 'rectangle',
+          x: targetX - MARGIN, y: targetY - HEADER_H,
+          width: 260, height: 80 + HEADER_H,
+          label: processName,
+          style: { fill: '#f8fafc', stroke: '#94a3b8', strokeWidth: 1.5, strokeDasharray: '8,4', opacity: 1, shadow: false, cornerRadius: 12 },
+          textStyle: { ...defaultTextStyle, fontSize: 11, fontWeight: 'bold', verticalAlign: 'top' },
+          rotation: 0, locked: true, zIndex: shape.zIndex,
+        });
+        const placeholderId = uuidv4();
+        subShapeIds.push(placeholderId);
+        injectedShapes.push({
+          id: placeholderId, type: 'text',
+          x: targetX, y: targetY + 10, width: 220, height: 30,
+          label: '— Diagram necreat —',
+          style: { ...defaultShapeStyle, fill: 'transparent', stroke: 'none', strokeWidth: 0, strokeDasharray: '', opacity: 1, shadow: false, cornerRadius: 0 },
+          textStyle: { ...defaultTextStyle, fontSize: 12, color: '#94a3b8' },
+          rotation: 0, locked: true, zIndex: shape.zIndex + 1,
+        });
+      }
+
+      // Dashed link from parent to container
+      const linkId = uuidv4();
+      subShapeIds.push(linkId);
+      injectedConns.push({
+        id: linkId, sourceId: shapeId, targetId: containerId,
+        waypoints: [], label: '',
+        style: { stroke: '#3b82f6', strokeWidth: 1.5, strokeDasharray: '6,4', startArrow: 'none', endArrow: 'none', lineStyle: 'straight', opacity: 0.5 },
+        textStyle: { ...defaultTextStyle }, zIndex: 0,
+      });
+
+      get().pushHistory();
+      set(s => ({
+        file: updateActivePage(s.file, p => ({
+          ...p,
+          shapes: [
+            ...p.shapes.map(sh => sh.id === shapeId
+              ? { ...sh, label: sh.label.replace(/^[▶▼]\s*/, '▼ '), qualypro: { ...sh.qualypro!, expanded: true, subShapeIds } }
+              : sh),
+            ...injectedShapes,
+          ],
+          connections: [...p.connections, ...injectedConns],
+        })),
+      }));
+    } catch (err) { console.error('expandProcess failed', err); }
+  },
+
+  collapseProcess: (shapeId) => {
+    const page = getActivePage(get().file);
+    const shape = page.shapes.find(s => s.id === shapeId);
+    if (!shape?.qualypro?.expanded || !shape.qualypro.subShapeIds) return;
+    const subIds = new Set(shape.qualypro.subShapeIds);
+    get().pushHistory();
+    set(s => ({
+      file: updateActivePage(s.file, p => ({
+        ...p,
+        shapes: p.shapes
+          .filter(sh => !subIds.has(sh.id))
+          .map(sh => sh.id === shapeId
+            ? { ...sh, label: sh.label.replace(/^▼\s*/, '▶ '), qualypro: { ...sh.qualypro!, expanded: false, subShapeIds: undefined } }
+            : sh),
+        connections: p.connections.filter(c => !subIds.has(c.sourceId) && !subIds.has(c.targetId) && !subIds.has(c.id)),
+      })),
+      selectedIds: [shapeId],
+    }));
   },
 
   addPage: () => {
@@ -394,13 +719,15 @@ export const useStore = create<AppState>((set, get) => ({
     }));
   },
 
-  addConnection: (sourceId, targetId, sx, sy, tx, ty) => {
+  addConnection: (sourceId, targetId, sx, sy, tx, ty, sourceSide, targetSide) => {
     get().pushHistory();
     const id = uuidv4();
     const conn: DiagramConnection = {
       id,
       sourceId,
       targetId,
+      sourceSide: sourceSide as DiagramConnection['sourceSide'],
+      targetSide: targetSide as DiagramConnection['targetSide'],
       sourcePoint: sx !== undefined && sy !== undefined ? { x: sx, y: sy } : undefined,
       targetPoint: tx !== undefined && ty !== undefined ? { x: tx, y: ty } : undefined,
       waypoints: [],

@@ -57,6 +57,21 @@ export interface ShapeStyle {
   cornerRadius: number;
 }
 
+export interface QualyProMeta {
+  processId: string;
+  processName: string;
+  processCode: string;
+  category: string;
+  raci: {
+    R: { id: string; name: string }[];
+    A: { id: string; name: string }[];
+    C: { id: string; name: string }[];
+    I: { id: string; name: string }[];
+  };
+  expanded?: boolean;
+  subShapeIds?: string[];  // IDs of injected shapes+conns when expanded
+}
+
 export interface DiagramShape {
   id: string;
   type: ShapeType;
@@ -71,6 +86,7 @@ export interface DiagramShape {
   locked: boolean;
   zIndex: number;
   groupId?: string;
+  qualypro?: QualyProMeta;
 }
 
 export interface ConnectionPoint {
@@ -84,6 +100,8 @@ export interface DiagramConnection {
   id: string;
   sourceId: string;
   targetId: string;
+  sourceSide?: 'top' | 'right' | 'bottom' | 'left';
+  targetSide?: 'top' | 'right' | 'bottom' | 'left';
   sourcePoint?: Point;
   targetPoint?: Point;
   waypoints: Point[];

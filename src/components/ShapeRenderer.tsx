@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import type { DiagramShape } from '../types';
 
 export function getShapePath(type: string, w: number, h: number): string {
@@ -415,15 +415,51 @@ export function getShapePath(type: string, w: number, h: number): string {
   }
 }
 
-// Renders multiline text with tspan support
+/**
+ * Wraps `text` into lines fitting within `maxPx` pixels (approximate char-width).
+ * Respects explicit newlines and word boundaries.
+ */
+function wrapText(text: string, maxPx: number, fontSize: number): string[] {
+  const charW = fontSize * 0.57;
+  const result: string[] = [];
+  for (const para of text.split('\n')) {
+    if (para === '') { result.push(''); continue; }
+    const words = para.split(' ');
+    let line = '';
+    for (const word of words) {
+      const candidate = line ? line + ' ' + word : word;
+      if (candidate.length * charW <= maxPx) {
+        line = candidate;
+      } else {
+        if (line) result.push(line);
+        if (word.length * charW > maxPx) {
+          const cut = Math.max(1, Math.floor(maxPx / charW));
+          let rem = word;
+          while (rem.length * charW > maxPx && rem.length > 1) {
+            result.push(rem.slice(0, cut));
+            rem = rem.slice(cut);
+          }
+          line = rem;
+        } else {
+          line = word;
+        }
+      }
+    }
+    result.push(line);
+  }
+  return result;
+}
+
+// Renders multiline text with word-wrap and tspan support
 function MultilineText({
-  label, x, y, fontSize, fontFamily, fontWeight, fontStyle, textDecoration, fill, textAnchor, dominantBaseline
+  label, x, y, fontSize, fontFamily, fontWeight, fontStyle, textDecoration,
+  fill, textAnchor, dominantBaseline, maxWidth
 }: {
   label: string; x: number; y: number; fontSize: number; fontFamily: string;
   fontWeight: string; fontStyle: string; textDecoration: string; fill: string;
-  textAnchor: 'start' | 'middle' | 'end'; dominantBaseline: string;
+  textAnchor: 'start' | 'middle' | 'end'; dominantBaseline: string; maxWidth?: number;
 }) {
-  const lines = label.split('\n');
+  const lines = maxWidth ? wrapText(label, maxWidth, fontSize) : label.split('\n');
   const lineHeight = fontSize * 1.3;
   const totalH = lines.length * lineHeight;
   let startY = y;
@@ -442,22 +478,22 @@ function MultilineText({
       textAnchor={textAnchor}
     >
       {lines.map((line, i) => (
-        <tspan key={i} x={x} y={startY + i * lineHeight}>{line || ' '}</tspan>
+        <tspan key={i} x={x} y={startY + i * lineHeight}>{line || ' '}</tspan>
       ))}
     </text>
   );
 }
-
 interface ShapePathProps {
   shape: DiagramShape;
   isPreview?: boolean;
 }
 
 export const ShapeRenderer: React.FC<ShapePathProps> = ({ shape }) => {
-  const { type, width: w, height: h, label, style, textStyle, rotation } = shape;
+  const { id, type, width: w, height: h, label, style, textStyle, rotation } = shape;
   const path = getShapePath(type, w, h);
   const isActor = type === 'actor';
   const isText = type === 'text';
+  const clipId = `tc-${id}`;
 
   const textX = textStyle.align === 'left' ? 8 : textStyle.align === 'right' ? w - 8 : w / 2;
   const textY = textStyle.verticalAlign === 'top' ? textStyle.fontSize * 0.8 + 4 : textStyle.verticalAlign === 'bottom' ? h - 6 : h / 2;
@@ -476,13 +512,20 @@ export const ShapeRenderer: React.FC<ShapePathProps> = ({ shape }) => {
     fill: textStyle.color,
     textAnchor,
     dominantBaseline,
+    maxWidth: w - 16,
   };
 
   const filter = style.shadow ? 'url(#shadow)' : undefined;
 
-  // Determine if shape uses stroke-only rendering (icons/network shapes)
   const strokeOnlyTypes = new Set(['router', 'hub', 'access-point', 'dns-server', 'internet', 'cdn', 'actor']);
   const isStrokeOnly = strokeOnlyTypes.has(type);
+
+  // Helper: text wrapped in a clipPath group so it never exceeds shape bounds
+  const clippedText = label ? (
+    <g clipPath={`url(#${clipId})`}>
+      <MultilineText {...textProps} />
+    </g>
+  ) : null;
 
   return (
     <g
@@ -490,8 +533,17 @@ export const ShapeRenderer: React.FC<ShapePathProps> = ({ shape }) => {
       style={{ opacity: style.opacity }}
       filter={filter}
     >
+      {/* ClipPath defined per shape — text cannot overflow shape boundary */}
+      {!isText && !isActor && (
+        <defs>
+          <clipPath id={clipId}>
+            <rect x={1} y={1} width={w - 2} height={h - 2} />
+          </clipPath>
+        </defs>
+      )}
+
       {isText ? (
-        <MultilineText {...textProps} />
+        <MultilineText {...textProps} maxWidth={undefined} />
       ) : isActor ? (
         <>
           <path d={path} fill="none" stroke={style.stroke} strokeWidth={style.strokeWidth} strokeDasharray={style.strokeDasharray} />
@@ -501,7 +553,7 @@ export const ShapeRenderer: React.FC<ShapePathProps> = ({ shape }) => {
         <>
           <path d={path.split(' M ')[0]} fill={style.fill} stroke={style.stroke} strokeWidth={style.strokeWidth} strokeDasharray={style.strokeDasharray} />
           <path d={'M ' + path.split(' M ')[1]} fill="none" stroke={style.stroke} strokeWidth={style.strokeWidth} />
-          {label && <MultilineText {...textProps} />}
+          {clippedText}
         </>
       ) : type === 'swimlane' ? (
         <>
@@ -513,18 +565,18 @@ export const ShapeRenderer: React.FC<ShapePathProps> = ({ shape }) => {
         <>
           <rect x={0} y={0} width={w} height={h} fill={style.fill} stroke={style.stroke} strokeWidth={style.strokeWidth} />
           <path d={path} fill="none" stroke={style.stroke} strokeWidth={Math.max(0.8, style.strokeWidth * 0.6)} opacity={0.6} />
-          {label && <MultilineText {...textProps} />}
+          {clippedText}
         </>
       ) : isStrokeOnly ? (
         <>
           <rect x={0} y={0} width={w} height={h} fill={style.fill} stroke="none" />
           <path d={path} fill="none" stroke={style.stroke} strokeWidth={style.strokeWidth} strokeDasharray={style.strokeDasharray} strokeLinecap="round" strokeLinejoin="round" />
-          {label && <MultilineText {...textProps} />}
+          {clippedText}
         </>
       ) : (
         <>
           <path d={path} fill={style.fill} stroke={style.stroke} strokeWidth={style.strokeWidth} strokeDasharray={style.strokeDasharray} strokeLinecap="round" strokeLinejoin="round" />
-          {label && <MultilineText {...textProps} />}
+          {clippedText}
         </>
       )}
     </g>
