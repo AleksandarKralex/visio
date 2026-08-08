@@ -410,6 +410,241 @@ export function getShapePath(type: string, w: number, h: number): string {
         + ` M ${w * 0.75} ${tray + (h * 0.72 - tray) * 0.4} m -4 0 a 4 4 0 1 0 8 0 a 4 4 0 1 0 -8 0`;
     }
 
+    // ── SOLID-MIXTURE PRODUCTION EQUIPMENT ──────────────────────────────
+    case 'bag-dump-station': {
+      const topY = h * 0.2, spoutY = h * 0.72, spoutW = w * 0.22;
+      let d = `M 0 ${topY} L ${w} ${topY} L ${w / 2 + spoutW / 2} ${spoutY} L ${w / 2 + spoutW / 2} ${h} L ${w / 2 - spoutW / 2} ${h} L ${w / 2 - spoutW / 2} ${spoutY} Z`;
+      // Grate (bag-breaker screen) sitting on top of the hopper mouth
+      const nBars = 4;
+      for (let i = 1; i <= nBars; i++) {
+        const x = (w / (nBars + 1)) * i;
+        d += ` M ${x} 0 V ${topY}`;
+      }
+      d += ` M 0 0 H ${w}`;
+      return d;
+    }
+
+    case 'rotary-valve': {
+      const cx = w / 2, cy = h / 2, r = Math.min(w, h) * 0.38;
+      let d = `M ${cx} ${cy} m ${-r} 0 a ${r} ${r} 0 1 0 ${r * 2} 0 a ${r} ${r} 0 1 0 ${-r * 2} 0`;
+      const nBlades = 6;
+      for (let i = 0; i < nBlades; i++) {
+        const a = (i * 2 * Math.PI) / nBlades;
+        d += ` M ${cx} ${cy} L ${cx + r * 0.8 * Math.cos(a)} ${cy + r * 0.8 * Math.sin(a)}`;
+      }
+      d += ` M ${cx} ${cy - r} V 0 M ${cx} ${cy + r} V ${h}`;
+      return d;
+    }
+
+    case 'butterfly-valve': {
+      const cy = h / 2, bw = w * 0.32, bh = h * 0.42;
+      let d = `M 0 ${cy} L ${w} ${cy}`;
+      d += ` M ${w / 2 - bw} ${cy - bh} L ${w / 2} ${cy} L ${w / 2 - bw} ${cy + bh} Z`;
+      d += ` M ${w / 2 + bw} ${cy - bh} L ${w / 2} ${cy} L ${w / 2 + bw} ${cy + bh} Z`;
+      return d;
+    }
+
+    case 'diverter-valve': {
+      const cx = w / 2, midY = h * 0.45;
+      let d = `M ${cx} 0 V ${midY}`;
+      d += ` M ${cx} ${midY} L ${w * 0.15} ${h}`;
+      d += ` M ${cx} ${midY} L ${w * 0.85} ${h}`;
+      d += ` M ${cx - w * 0.13} ${midY - h * 0.09} L ${cx + w * 0.13} ${midY + h * 0.09}`;
+      d += ` M ${cx} ${midY} m -5 0 a 5 5 0 1 0 10 0 a 5 5 0 1 0 -10 0`;
+      return d;
+    }
+
+    case 'guillotine-valve': {
+      const cy = h * 0.65;
+      const hx = w * 0.35, hw = w * 0.3, hh = cy * 0.6;
+      let d = `M 0 ${cy} H ${w}`;
+      d += ` M ${hx} 0 H ${hx + hw} V ${hh} H ${hx} Z`;
+      const bladeX = w * 0.47, bladeW = w * 0.06;
+      d += ` M ${bladeX} ${hh} H ${bladeX + bladeW} V ${cy + h * 0.12} H ${bladeX} Z`;
+      return d;
+    }
+
+    case 'pneumatic-pipe': {
+      const cy = h / 2, wallOff = h * 0.28;
+      let d = `M 0 ${cy - wallOff} H ${w} M 0 ${cy + wallOff} H ${w}`;
+      const n = 3, cs = Math.min(w / (n + 2), h * 0.22);
+      for (let i = 1; i <= n; i++) {
+        const x = (w / (n + 1)) * i;
+        d += ` M ${x - cs} ${cy - cs * 0.7} L ${x} ${cy} L ${x - cs} ${cy + cs * 0.7}`;
+      }
+      return d;
+    }
+
+    case 'vacuum-pump': {
+      const cx = w * 0.42, cy = h * 0.58, r = Math.min(w, h) * 0.32;
+      let d = `M ${cx} ${cy} m ${-r} 0 a ${r} ${r} 0 1 0 ${r * 2} 0 a ${r} ${r} 0 1 0 ${-r * 2} 0`;
+      d += ` M ${cx} ${cy - r * 0.5} A ${r * 0.5} ${r * 0.5} 0 1 1 ${cx - r * 0.3} ${cy + r * 0.4}`;
+      const mw = w * 0.3, mh = h * 0.35, mx = cx + r * 0.7, my = cy - mh / 2;
+      d += ` M ${mx} ${my} H ${mx + mw} V ${my + mh} H ${mx} Z`;
+      d += ` M ${cx} ${cy - r} V 0`;
+      d += ` M ${cx} ${cy + r} V ${h}`;
+      return d;
+    }
+
+    case 'filter': {
+      const rx = w / 2, ry = Math.min(w * 0.5, h * 0.12);
+      const bodyBottom = h * 0.7;
+      let d = `M 0 ${ry} A ${rx} ${ry} 0 0 1 ${w} ${ry} V ${bodyBottom} L ${w * 0.6} ${h} L ${w * 0.4} ${h} L 0 ${bodyBottom} Z`;
+      d += ` M 0 ${ry} A ${rx} ${ry} 0 0 0 ${w} ${ry}`;
+      const nCartridges = 5;
+      for (let i = 1; i < nCartridges; i++) {
+        const x = (w / nCartridges) * i;
+        d += ` M ${x} ${ry * 1.5} V ${bodyBottom * 0.9}`;
+      }
+      return d;
+    }
+
+    case 'vertical-mixer': {
+      const rx = w / 2, ry = Math.min(w * 0.5, h * 0.1);
+      const bodyBottom = h * 0.92;
+      let d = `M 0 ${ry} A ${rx} ${ry} 0 0 1 ${w} ${ry} V ${bodyBottom} A ${rx} ${ry} 0 0 1 0 ${bodyBottom} Z`;
+      d += ` M 0 ${ry} A ${rx} ${ry} 0 0 0 ${w} ${ry}`;
+      const cx = w / 2;
+      d += ` M ${cx} ${ry * 1.5} V ${bodyBottom * 0.95}`;
+      const nPaddles = 3;
+      for (let i = 1; i <= nPaddles; i++) {
+        const y = ry * 1.5 + (bodyBottom * 0.95 - ry * 1.5) * (i / (nPaddles + 1));
+        d += ` M ${cx - w * 0.28} ${y} H ${cx + w * 0.28}`;
+      }
+      const mw = w * 0.4, mh = h * 0.12, mx = (w - mw) / 2;
+      d += ` M ${mx} 0 H ${mx + mw} V ${ry * 0.9} H ${mx} Z`;
+      return d;
+    }
+
+    case 'horizontal-mixer': {
+      const capR = h / 2, bodyRight = w * 0.82;
+      let d = `M ${capR} 0 H ${bodyRight} V ${h} H ${capR} A ${capR} ${capR} 0 0 1 ${capR} 0 Z`;
+      const cy = h / 2;
+      d += ` M ${capR * 1.4} ${cy} H ${bodyRight - 4}`;
+      const nPaddles = 4;
+      for (let i = 1; i <= nPaddles; i++) {
+        const x = capR * 1.4 + (bodyRight - 4 - capR * 1.4) * (i / (nPaddles + 1));
+        d += ` M ${x} ${cy - h * 0.3} V ${cy + h * 0.3}`;
+      }
+      const mx = bodyRight, my = h * 0.15, mh = h * 0.7;
+      d += ` M ${mx} ${my} H ${w} V ${my + mh} H ${mx} Z`;
+      return d;
+    }
+
+    case 'separator': {
+      const rx = w / 2, ry = Math.min(w * 0.5, h * 0.08);
+      const straightBottom = h * 0.55;
+      let d = `M 0 ${ry} A ${rx} ${ry} 0 0 1 ${w} ${ry} V ${straightBottom} L ${w / 2} ${h} L 0 ${straightBottom} Z`;
+      d += ` M 0 ${ry} A ${rx} ${ry} 0 0 0 ${w} ${ry}`;
+      d += ` M ${w / 2} 0 V ${ry}`;
+      d += ` M ${w * 0.8} ${ry * 2} H ${w}`;
+      return d;
+    }
+
+    case 'silo': {
+      const rx = w / 2, ry = Math.min(w * 0.5, h * 0.08);
+      const straightBottom = h * 0.75;
+      let d = `M 0 ${ry} A ${rx} ${ry} 0 0 1 ${w} ${ry} V ${straightBottom} L ${w * 0.65} ${h} L ${w * 0.35} ${h} L 0 ${straightBottom} Z`;
+      d += ` M 0 ${ry} A ${rx} ${ry} 0 0 0 ${w} ${ry}`;
+      d += ` M ${w * 0.25} ${ry} L ${w / 2} 0 L ${w * 0.75} ${ry}`;
+      return d;
+    }
+
+    case 'bag-packer': {
+      const hopperBottomY = h * 0.32, spoutW = w * 0.16, spoutBottomY = h * 0.48;
+      let d = `M ${w * 0.08} 0 H ${w * 0.92} L ${w / 2 + spoutW / 2} ${hopperBottomY} V ${spoutBottomY} L ${w / 2 - spoutW / 2} ${spoutBottomY} V ${hopperBottomY} Z`;
+      const bagW = w * 0.4, bagX = (w - bagW) / 2, bagY = spoutBottomY + h * 0.06, bagH = h * 0.4, r = 6;
+      d += ` M ${bagX + r} ${bagY} H ${bagX + bagW - r} Q ${bagX + bagW} ${bagY} ${bagX + bagW} ${bagY + r} V ${bagY + bagH - r} Q ${bagX + bagW} ${bagY + bagH} ${bagX + bagW - r} ${bagY + bagH} H ${bagX + r} Q ${bagX} ${bagY + bagH} ${bagX} ${bagY + bagH - r} V ${bagY + r} Q ${bagX} ${bagY} ${bagX + r} ${bagY} Z`;
+      return d;
+    }
+
+    case 'conveyor': {
+      const beltH = h * 0.35;
+      let d = `M 0 0 H ${w} V ${beltH} H 0 Z`;
+      const n = 6;
+      for (let i = 0; i < n; i++) {
+        const cx = (w / n) * (i + 0.5);
+        d += ` M ${cx} ${beltH} m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0`;
+      }
+      d += ` M ${w * 0.08} ${beltH} L ${w * 0.16} ${h} M ${w * 0.92} ${beltH} L ${w * 0.84} ${h}`;
+      return d;
+    }
+
+    case 'robotic-palletizer': {
+      const baseW = w * 0.32, baseH = h * 0.22, baseX = (w - baseW) / 2, baseY = h - baseH;
+      let d = `M ${baseX} ${baseY} H ${baseX + baseW} V ${h} H ${baseX} Z`;
+      const shoulderX = w / 2, shoulderY = baseY;
+      const elbowX = w * 0.25, elbowY = h * 0.35;
+      const gripX = w * 0.75, gripY = h * 0.15;
+      d += ` M ${shoulderX} ${shoulderY} L ${elbowX} ${elbowY}`;
+      d += ` M ${elbowX} ${elbowY} L ${gripX} ${gripY}`;
+      d += ` M ${gripX} ${gripY} L ${gripX + w * 0.08} ${gripY - h * 0.08} M ${gripX} ${gripY} L ${gripX + w * 0.08} ${gripY + h * 0.08}`;
+      d += ` M ${shoulderX} ${shoulderY} m -4 0 a 4 4 0 1 0 8 0 a 4 4 0 1 0 -8 0`;
+      d += ` M ${elbowX} ${elbowY} m -4 0 a 4 4 0 1 0 8 0 a 4 4 0 1 0 -8 0`;
+      return d;
+    }
+
+    case 'bag-sealer': {
+      let d = `M 0 0 H ${w} V ${h} H 0 Z`;
+      const barY = h * 0.45, barH = h * 0.12;
+      d += ` M 0 ${barY} H ${w} V ${barY + barH} H 0 Z`;
+      const n = 6, stepX = w / n;
+      let zig = `M 0 ${barY + barH / 2}`;
+      for (let i = 1; i <= n; i++) {
+        zig += ` L ${stepX * i} ${barY + (i % 2 === 0 ? barH * 0.2 : barH * 0.8)}`;
+      }
+      d += ' ' + zig;
+      return d;
+    }
+
+    case 'pallet-conveyor': {
+      const beltH = h * 0.3;
+      let d = `M 0 0 H ${w} V ${beltH} H 0 Z`;
+      const n = 4;
+      for (let i = 0; i < n; i++) {
+        const cx = (w / n) * (i + 0.5);
+        d += ` M ${cx} ${beltH} m -5 0 a 5 5 0 1 0 10 0 a 5 5 0 1 0 -10 0`;
+      }
+      d += ` M ${w * 0.06} ${beltH} L ${w * 0.14} ${h} M ${w * 0.94} ${beltH} L ${w * 0.86} ${h}`;
+      return d;
+    }
+
+    case 'pallet': {
+      let d = `M 0 0 H ${w} V ${h} H 0 Z`;
+      const n = 5;
+      for (let i = 1; i < n; i++) {
+        d += ` M 0 ${(h / n) * i} H ${w}`;
+      }
+      return d;
+    }
+
+    case 'bagged-pallet': {
+      const palletH = h * 0.16;
+      let d = `M 0 ${h - palletH} H ${w} V ${h} H 0 Z`;
+      d += ` M 0 ${h - palletH * 0.5} H ${w}`;
+      const sackW = w * 0.7, sackX = (w - sackW) / 2, sackH = (h - palletH) * 0.42, r = 8;
+      const sack2Y = h - palletH - sackH - 3;
+      const sack1Y = sack2Y - sackH - 3;
+      for (const sy of [sack1Y, sack2Y]) {
+        d += ` M ${sackX + r} ${sy} H ${sackX + sackW - r} Q ${sackX + sackW} ${sy} ${sackX + sackW} ${sy + r} V ${sy + sackH - r} Q ${sackX + sackW} ${sy + sackH} ${sackX + sackW - r} ${sy + sackH} H ${sackX + r} Q ${sackX} ${sy + sackH} ${sackX} ${sy + sackH - r} V ${sy + r} Q ${sackX} ${sy} ${sackX + r} ${sy} Z`;
+      }
+      return d;
+    }
+
+    case 'stretch-wrapper': {
+      const baseRy = h * 0.05, baseRx = w * 0.42, baseY = h * 0.92;
+      let d = `M ${w / 2 - baseRx} ${baseY} A ${baseRx} ${baseRy} 0 1 0 ${w / 2 + baseRx} ${baseY} A ${baseRx} ${baseRy} 0 1 0 ${w / 2 - baseRx} ${baseY} Z`;
+      const loadW = w * 0.55, loadX = (w - loadW) / 2 - w * 0.06, loadH = h * 0.75, loadY = baseY - loadH, r = 8;
+      d += ` M ${loadX + r} ${loadY} H ${loadX + loadW - r} Q ${loadX + loadW} ${loadY} ${loadX + loadW} ${loadY + r} V ${loadY + loadH - r} Q ${loadX + loadW} ${loadY + loadH} ${loadX + loadW - r} ${loadY + loadH} H ${loadX + r} Q ${loadX} ${loadY + loadH} ${loadX} ${loadY + loadH - r} V ${loadY + r} Q ${loadX} ${loadY} ${loadX + r} ${loadY} Z`;
+      const nWraps = 4;
+      for (let i = 0; i < nWraps; i++) {
+        const y1 = loadY + (loadH / nWraps) * i;
+        d += ` M ${loadX} ${y1 + (loadH / nWraps) * 0.3} L ${loadX + loadW} ${y1 + (loadH / nWraps) * 0.9}`;
+      }
+      d += ` M ${loadX + loadW + w * 0.1} ${h * 0.05} V ${baseY}`;
+      return d;
+    }
+
     default:
       return `M 0 0 H ${w} V ${h} H 0 Z`;
   }

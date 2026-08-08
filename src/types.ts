@@ -24,7 +24,13 @@ export type ShapeType =
   // Clients & endpoints
   | 'workstation' | 'laptop' | 'mobile-device' | 'printer'
   // Text / image
-  | 'text' | 'image';
+  | 'text' | 'image'
+  // Solid-mixture production equipment
+  | 'bag-dump-station' | 'rotary-valve' | 'butterfly-valve' | 'diverter-valve'
+  | 'guillotine-valve' | 'pneumatic-pipe' | 'vacuum-pump' | 'filter'
+  | 'vertical-mixer' | 'horizontal-mixer' | 'separator' | 'silo'
+  | 'bag-packer' | 'conveyor' | 'robotic-palletizer' | 'bag-sealer'
+  | 'pallet-conveyor' | 'pallet' | 'bagged-pallet' | 'stretch-wrapper';
 
 export interface Point {
   x: number;

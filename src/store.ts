@@ -653,6 +653,27 @@ export const useStore = create<AppState>((set, get) => ({
       laptop: { w: 120, h: 90, label: 'Laptop' },
       'mobile-device': { w: 70, h: 120, label: 'Mobile' },
       printer: { w: 110, h: 90, label: 'Printer' },
+      // Solid-mixture production equipment
+      'bag-dump-station': { w: 90, h: 110, label: 'Stație descărcare saci' },
+      'rotary-valve': { w: 90, h: 90, label: 'Valvă rotativă' },
+      'butterfly-valve': { w: 110, h: 50, label: 'Valvă fluture' },
+      'diverter-valve': { w: 100, h: 100, label: 'Valvă divertor' },
+      'guillotine-valve': { w: 110, h: 90, label: 'Valvă ghilotină' },
+      'pneumatic-pipe': { w: 160, h: 40, label: 'Conductă pneumatică' },
+      'vacuum-pump': { w: 130, h: 90, label: 'Pompă de vid' },
+      filter: { w: 90, h: 130, label: 'Filtru' },
+      'vertical-mixer': { w: 90, h: 150, label: 'Mixer vertical' },
+      'horizontal-mixer': { w: 170, h: 70, label: 'Mixer orizontal' },
+      separator: { w: 100, h: 140, label: 'Separator' },
+      silo: { w: 90, h: 160, label: 'Siloz' },
+      'bag-packer': { w: 100, h: 140, label: 'Mașină ambalat saci' },
+      conveyor: { w: 200, h: 60, label: 'Conveior' },
+      'robotic-palletizer': { w: 140, h: 140, label: 'Braț robotic paletizare' },
+      'bag-sealer': { w: 120, h: 70, label: 'Mașină sigilare saci' },
+      'pallet-conveyor': { w: 200, h: 55, label: 'Conveior paleți' },
+      pallet: { w: 110, h: 85, label: 'Palet' },
+      'bagged-pallet': { w: 100, h: 150, label: 'Palet cu saci' },
+      'stretch-wrapper': { w: 110, h: 160, label: 'Mașină înfoliat' },
     };
     const d = defaults[type] || { w: 120, h: 80, label: type };
     const shape: DiagramShape = {

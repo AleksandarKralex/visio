@@ -139,6 +139,32 @@ const categories: ShapeCategory[] = [
       { type: 'text', label: 'Text' },
     ],
   },
+  {
+    name: 'Producție Amestecuri Solide',
+    icon: '⚙',
+    shapes: [
+      { type: 'bag-dump-station', label: 'Stație descărcare saci' },
+      { type: 'rotary-valve', label: 'Valvă rotativă' },
+      { type: 'butterfly-valve', label: 'Valvă fluture' },
+      { type: 'diverter-valve', label: 'Valvă divertor' },
+      { type: 'guillotine-valve', label: 'Valvă ghilotină' },
+      { type: 'pneumatic-pipe', label: 'Conductă pneumatică' },
+      { type: 'vacuum-pump', label: 'Pompă de vid' },
+      { type: 'filter', label: 'Filtru' },
+      { type: 'vertical-mixer', label: 'Mixer vertical' },
+      { type: 'horizontal-mixer', label: 'Mixer orizontal' },
+      { type: 'separator', label: 'Separator' },
+      { type: 'silo', label: 'Siloz' },
+      { type: 'bag-packer', label: 'Mașină ambalat saci' },
+      { type: 'conveyor', label: 'Conveior' },
+      { type: 'robotic-palletizer', label: 'Braț robotic paletizare' },
+      { type: 'bag-sealer', label: 'Mașină sigilare saci' },
+      { type: 'pallet-conveyor', label: 'Conveior paleți' },
+      { type: 'pallet', label: 'Palet' },
+      { type: 'bagged-pallet', label: 'Palet cu saci' },
+      { type: 'stretch-wrapper', label: 'Mașină înfoliat' },
+    ],
+  },
 ];
 
 const ShapePreview: React.FC<{ type: ShapeType }> = ({ type }) => {
