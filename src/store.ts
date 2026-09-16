@@ -186,7 +186,7 @@ interface AppState {
   duplicateShapes: (ids: string[]) => void;
 
   // Connection actions
-  addConnection: (sourceId: string, targetId: string, sx?: number, sy?: number, tx?: number, ty?: number, sourceSide?: string, targetSide?: string) => void;
+  addConnection: (sourceId: string, targetId: string, sourceSide?: string, targetSide?: string) => void;
   updateConnection: (id: string, updates: Partial<DiagramConnection>) => void;
   removeConnections: (ids: string[]) => void;
 
@@ -740,7 +740,7 @@ export const useStore = create<AppState>((set, get) => ({
     }));
   },
 
-  addConnection: (sourceId, targetId, sx, sy, tx, ty, sourceSide, targetSide) => {
+  addConnection: (sourceId, targetId, sourceSide, targetSide) => {
     get().pushHistory();
     const id = uuidv4();
     const conn: DiagramConnection = {
@@ -749,8 +749,6 @@ export const useStore = create<AppState>((set, get) => ({
       targetId,
       sourceSide: sourceSide as DiagramConnection['sourceSide'],
       targetSide: targetSide as DiagramConnection['targetSide'],
-      sourcePoint: sx !== undefined && sy !== undefined ? { x: sx, y: sy } : undefined,
-      targetPoint: tx !== undefined && ty !== undefined ? { x: tx, y: ty } : undefined,
       waypoints: [],
       label: '',
       style: {

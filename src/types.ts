@@ -108,8 +108,12 @@ export interface DiagramConnection {
   targetId: string;
   sourceSide?: 'top' | 'right' | 'bottom' | 'left';
   targetSide?: 'top' | 'right' | 'bottom' | 'left';
-  sourcePoint?: Point;
-  targetPoint?: Point;
+  /** Fractional position (0-1) along the sourceSide/targetSide edge of that
+   * shape's bounding box. Undefined (old saved data, or a fixed-port connection)
+   * means the exact midpoint — today's behavior. For top/bottom, t=0 is the left
+   * end; for left/right, t=0 is the top end. */
+  sourceT?: number;
+  targetT?: number;
   waypoints: Point[];
   label: string;
   style: {

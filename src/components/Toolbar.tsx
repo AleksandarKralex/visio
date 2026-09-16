@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useStore, EMBED_MAP_MODE } from '../store';
 import { ProcessMapLibrary } from './ProcessMapLibrary';
+import { exportDiagramAsPng, exportDiagramAsSvg, exportDiagramAsPdf, type PngScale } from '../utils/exportDiagram';
 import type { Tool } from '../types';
 
 const ToolIcon: React.FC<{
@@ -236,6 +237,117 @@ const AlignDropdown: React.FC<{ selectedCount: number }> = ({ selectedCount }) =
   );
 };
 
+// ── Export image dropdown ──────────────────────────────────────────────────────
+const ExportImageDropdown: React.FC = () => {
+  const [open, setOpen] = useState(false);
+  const [busyLabel, setBusyLabel] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    if (open) document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [open]);
+
+  const run = async (label: string, action: () => void | Promise<void>) => {
+    setOpen(false);
+    setBusyLabel(label);
+    try {
+      await action();
+    } catch (err) {
+      console.error(`Export ${label} eșuat:`, err);
+    } finally {
+      setBusyLabel(null);
+    }
+  };
+
+  const pngOptions: { label: string; scale: PngScale }[] = [
+    { label: 'PNG @1x', scale: 1 },
+    { label: 'PNG @2x', scale: 2 },
+    { label: 'PNG @4x', scale: 4 },
+  ];
+
+  const itemStyle: React.CSSProperties = {
+    display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px',
+    border: 'none', borderRadius: 6, background: 'transparent', cursor: 'pointer',
+    fontSize: 12, fontFamily: 'Inter, sans-serif', color: '#374151',
+  };
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title="Exportă imagine"
+        disabled={!!busyLabel}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 4,
+          height: 32, padding: '0 8px', borderRadius: 8,
+          border: '1px solid #e5e5ea', background: open ? '#EBF2FF' : '#fafafa',
+          cursor: busyLabel ? 'default' : 'pointer',
+          color: busyLabel ? '#c7c7cc' : open ? '#0066CC' : '#1a1a2e',
+          fontSize: 12, fontFamily: 'Inter, sans-serif', fontWeight: 500,
+          transition: 'all 0.12s', whiteSpace: 'nowrap',
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="1.5" width="12" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+          <circle cx="4.5" cy="4.7" r="1" fill="currentColor" />
+          <path d="M2 9.5l3-2.8 2 1.8 2.5-2.8 2.5 2.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        {busyLabel ? `Se exportă ${busyLabel}…` : 'Exportă imagine'}
+        <svg width="8" height="8" viewBox="0 0 8 8" fill="none" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
+          <path d="M1.5 3L4 5.5 6.5 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 9999,
+          background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 6, width: 180,
+        }}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '4px 10px' }}>
+            Imagine
+          </div>
+          {pngOptions.map(o => (
+            <button
+              key={o.scale}
+              style={itemStyle}
+              onClick={() => run(o.label, () => exportDiagramAsPng(o.scale))}
+              onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#eff6ff')}
+              onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
+            >
+              {o.label}
+            </button>
+          ))}
+          <button
+            style={itemStyle}
+            onClick={() => run('SVG', exportDiagramAsSvg)}
+            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#eff6ff')}
+            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
+          >
+            SVG
+          </button>
+          <div style={{ height: 1, background: '#e5e5ea', margin: '4px 2px' }} />
+          <div style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '4px 10px' }}>
+            Document
+          </div>
+          <button
+            style={itemStyle}
+            onClick={() => run('PDF', exportDiagramAsPdf)}
+            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#eff6ff')}
+            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
+          >
+            PDF
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Zoom control ────────────────────────────────────────────────────────────────
 const ZoomControl: React.FC = () => {
   const { canvas, setZoom, resetView, zoomToFit } = useStore();
@@ -383,6 +495,8 @@ export const Toolbar: React.FC = () => {
         </svg>
       </ToolIcon>
       <input ref={fileInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImport} />
+
+      <ExportImageDropdown />
 
       {EMBED_MAP_MODE && (
         <>

@@ -2,6 +2,7 @@ import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { useStore } from '../store';
 import { ShapeRenderer } from './ShapeRenderer';
 import { ConnectionRenderer } from './ConnectionRenderer';
+import { portPoint, autoSide, type Side } from '../utils/connectorGeometry';
 import type { DiagramShape, Point, ShapeType } from '../types';
 
 const HANDLE_SIZE = 8;
@@ -11,12 +12,14 @@ const PORT_HIT_RADIUS = 12;  // invisible hit area radius
 type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 interface DragState {
-  type: 'move' | 'resize' | 'pan' | 'select-box' | 'connect';
+  type: 'move' | 'resize' | 'pan' | 'select-box' | 'connect' | 'reglue-endpoint';
   startX: number;
   startY: number;
   handle?: ResizeHandle;
   initialShapes?: { id: string; x: number; y: number; width: number; height: number }[];
   connectSourceId?: string;
+  connectionId?: string;
+  endpoint?: 'source' | 'target';
 }
 
 function snapToGrid(val: number, gridSize: number, snap: boolean): number {
@@ -33,6 +36,24 @@ function getShapePorts(shape: DiagramShape) {
   ];
 }
 
+/** Nearest point on `shape`'s bounding-box edge to (px,py), for free glue-point dragging. */
+function nearestBoundaryPoint(shape: DiagramShape, px: number, py: number): { side: Side; t: number; x: number; y: number } {
+  const { x, y, width: w, height: h } = shape;
+  const cx = Math.min(Math.max(px, x), x + w);
+  const cy = Math.min(Math.max(py, y), y + h);
+  const tX = w === 0 ? 0.5 : (cx - x) / w;
+  const tY = h === 0 ? 0.5 : (cy - y) / h;
+  const candidates: { side: Side; t: number; x: number; y: number; dist: number }[] = [
+    { side: 'top', t: tX, x: cx, y, dist: Math.hypot(px - cx, py - y) },
+    { side: 'bottom', t: tX, x: cx, y: y + h, dist: Math.hypot(px - cx, py - (y + h)) },
+    { side: 'left', t: tY, x, y: cy, dist: Math.hypot(px - x, py - cy) },
+    { side: 'right', t: tY, x: x + w, y: cy, dist: Math.hypot(px - (x + w), py - cy) },
+  ];
+  candidates.sort((a, b) => a.dist - b.dist);
+  const best = candidates[0];
+  return { side: best.side, t: Math.min(1, Math.max(0, best.t)), x: best.x, y: best.y };
+}
+
 export const Canvas: React.FC = () => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -46,12 +67,13 @@ export const Canvas: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [connectingSide, setConnectingSide] = useState<string | null>(null);
+  const [glueTarget, setGlueTarget] = useState<{ x: number; y: number } | null>(null);
 
   const {
     file, activeTool, selectedIds, canvas, showGrid,
     setSelectedIds, clearSelection, addToSelection, setActiveTool,
     addShape, updateShape, removeShapes, removeConnections, pushHistory,
-    addConnection, setZoom, setPan, setConnectingFrom, connectingFrom,
+    addConnection, updateConnection, setZoom, setPan, setConnectingFrom, connectingFrom,
   } = useStore();
 
   const page = file.pages.find(p => p.id === file.activePageId)!;
@@ -112,13 +134,20 @@ export const Canvas: React.FC = () => {
   // Complete connection to a shape or port
   const completeConnect = useCallback((targetId: string, targetSide?: string) => {
     if (connectingFrom && connectingFrom !== targetId) {
-      addConnection(connectingFrom, targetId, undefined, undefined, undefined, undefined,
-        connectingSide ?? undefined, targetSide);
+      addConnection(connectingFrom, targetId, connectingSide ?? undefined, targetSide);
     }
     setConnectingFrom(null);
     setConnectingSide(null);
     setConnectLine(null);
   }, [connectingFrom, connectingSide, addConnection, setConnectingFrom]);
+
+  // Start re-gluing an existing connection's endpoint to an arbitrary contour point
+  const handleConnectionEndpointMouseDown = useCallback((connId: string, endpoint: 'source' | 'target', e: React.MouseEvent) => {
+    e.stopPropagation();
+    pushHistory();
+    const pt = svgToCanvas(e.clientX, e.clientY);
+    setDrag({ type: 'reglue-endpoint', startX: pt.x, startY: pt.y, connectionId: connId, endpoint });
+  }, [svgToCanvas, pushHistory]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0 && e.button !== 1) return;
@@ -228,6 +257,23 @@ export const Canvas: React.FC = () => {
       return;
     }
 
+    if (drag.type === 'reglue-endpoint' && drag.connectionId && drag.endpoint) {
+      const conn = page.connections.find(c => c.id === drag.connectionId);
+      if (!conn) return;
+      const otherShapeId = drag.endpoint === 'source' ? conn.targetId : conn.sourceId;
+      const hovered = getShapeAt(pt.x, pt.y);
+      if (hovered && hovered.id === otherShapeId) return; // no self-loop via drag
+      const fallbackId = drag.endpoint === 'source' ? conn.sourceId : conn.targetId;
+      const shape = hovered ?? page.shapes.find(s => s.id === fallbackId);
+      if (!shape) return;
+      const near = nearestBoundaryPoint(shape, pt.x, pt.y);
+      setGlueTarget({ x: near.x, y: near.y });
+      updateConnection(drag.connectionId, drag.endpoint === 'source'
+        ? { sourceId: shape.id, sourceSide: near.side, sourceT: near.t }
+        : { targetId: shape.id, targetSide: near.side, targetT: near.t });
+      return;
+    }
+
     if (drag.type === 'move' && drag.initialShapes) {
       const dx = pt.x - drag.startX;
       const dy = pt.y - drag.startY;
@@ -258,7 +304,7 @@ export const Canvas: React.FC = () => {
         height: snapToGrid(height, gridSize, page.snapToGrid),
       });
     }
-  }, [drag, svgToCanvas, panX, panY, page, gridSize, connectLine, setPan, updateShape]);
+  }, [drag, svgToCanvas, panX, panY, page, gridSize, connectLine, setPan, updateShape, getShapeAt, updateConnection]);
 
   const handleMouseUp = useCallback((_e: React.MouseEvent) => {
     if (!drag) return;
@@ -280,6 +326,7 @@ export const Canvas: React.FC = () => {
 
     setDrag(null);
     setSelBox(null);
+    setGlueTarget(null);
   }, [drag, selBox, page, setSelectedIds]);
 
   const handleShapeMouseDown = useCallback((e: React.MouseEvent, shapeId: string) => {
@@ -448,6 +495,9 @@ export const Canvas: React.FC = () => {
   }, [panX, panY, zoom, gridSize, page, addShape]);
 
   const sortedShapes = [...(page?.shapes ?? [])].sort((a, b) => a.zIndex - b.zIndex);
+  // Cheap routing preview while any drag that reshapes a connection is live;
+  // full A* pathfinding runs once the gesture ends (drag becomes null).
+  const isDragging = drag !== null && (drag.type === 'move' || drag.type === 'resize' || drag.type === 'reglue-endpoint');
 
   const getResizeHandles = (shape: DiagramShape) => {
     const { x, y, width: w, height: h } = shape;
@@ -476,6 +526,7 @@ export const Canvas: React.FC = () => {
     >
       <svg
         ref={svgRef}
+        data-diagram-canvas="true"
         style={{ width: '100%', height: '100%', cursor: getCursor() }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -498,7 +549,7 @@ export const Canvas: React.FC = () => {
         <rect width="100%" height="100%" fill={page?.background ?? '#ffffff'} />
         {showGrid && <rect width="100%" height="100%" fill="url(#grid)" />}
 
-        <g transform={`translate(${panX}, ${panY}) scale(${zoom})`}>
+        <g transform={`translate(${panX}, ${panY}) scale(${zoom})`} data-diagram-content="true">
           {/* Connections */}
           {page?.connections.map(conn => (
             <ConnectionRenderer
@@ -506,6 +557,7 @@ export const Canvas: React.FC = () => {
               connection={conn}
               shapes={page.shapes}
               isSelected={selectedIds.includes(conn.id)}
+              isDragging={isDragging}
               onClick={(id, e) => {
                 if (e.shiftKey) addToSelection(id);
                 else setSelectedIds([id]);
@@ -537,6 +589,7 @@ export const Canvas: React.FC = () => {
 
                 {/* Invisible larger hit area for easy selection */}
                 <rect
+                  data-export-ignore="true"
                   x={-4} y={-4}
                   width={shape.width + 8} height={shape.height + 8}
                   fill="transparent"
@@ -544,20 +597,64 @@ export const Canvas: React.FC = () => {
                 />
 
                 {isSelected && (
-                  <rect x={-2} y={-2} width={shape.width + 4} height={shape.height + 4}
+                  <rect data-export-ignore="true" x={-2} y={-2} width={shape.width + 4} height={shape.height + 4}
                     fill="none" stroke="#0066CC" strokeWidth={1.5 / zoom}
                     strokeDasharray={`${4 / zoom} ${2 / zoom}`}
                     pointerEvents="none" rx={2} />
                 )}
 
                 {isHovered && !isSelected && (
-                  <rect x={-1} y={-1} width={shape.width + 2} height={shape.height + 2}
+                  <rect data-export-ignore="true" x={-1} y={-1} width={shape.width + 2} height={shape.height + 2}
                     fill="none" stroke={activeTool === 'connect' ? '#0066CC' : '#c7c7cc'}
                     strokeWidth={1.5 / zoom} pointerEvents="none" rx={2} />
                 )}
               </g>
             );
           })}
+
+          {/* Free glue-point drag handles for the selected connection(s) — rendered
+              ABOVE shapes (same tier as ports/resize-handles below) so they're
+              never occluded by a shape's own hit-rect. */}
+          {activeTool === 'select' && page?.connections
+            .filter(c => selectedIds.includes(c.id))
+            .map(conn => {
+              const srcShape = page.shapes.find(s => s.id === conn.sourceId);
+              const dstShape = page.shapes.find(s => s.id === conn.targetId);
+              if (!srcShape || !dstShape) return null;
+              const dstCenter = { x: dstShape.x + dstShape.width / 2, y: dstShape.y + dstShape.height / 2 };
+              const srcCenter = { x: srcShape.x + srcShape.width / 2, y: srcShape.y + srcShape.height / 2 };
+              const ss = conn.sourceSide ?? autoSide(srcShape, dstCenter);
+              const ds = conn.targetSide ?? autoSide(dstShape, srcCenter);
+              const endpoints = {
+                source: portPoint(srcShape, ss, conn.sourceT),
+                target: portPoint(dstShape, ds, conn.targetT),
+              };
+              return (
+                <g key={`ep-${conn.id}`} data-export-ignore="true">
+                  {(['source', 'target'] as const).map(ep => (
+                    <circle
+                      key={ep}
+                      cx={endpoints[ep].x} cy={endpoints[ep].y}
+                      r={PORT_HIT_RADIUS / zoom}
+                      fill="transparent" stroke="none"
+                      style={{ cursor: 'grab' }}
+                      onMouseDown={(e) => handleConnectionEndpointMouseDown(conn.id, ep, e)}
+                    />
+                  ))}
+                </g>
+              );
+            })}
+
+          {glueTarget && (
+            <circle
+              data-export-ignore="true"
+              cx={glueTarget.x} cy={glueTarget.y}
+              r={(PORT_RADIUS + 3) / zoom}
+              fill="#0066CC" fillOpacity={0.25}
+              stroke="#0066CC" strokeWidth={2 / zoom}
+              pointerEvents="none"
+            />
+          )}
 
           {/* Connection ports — rendered ABOVE shapes so they're always clickable */}
           {showPorts && sortedShapes.map(shape => {
@@ -569,7 +666,7 @@ export const Canvas: React.FC = () => {
               const portKey = `${shape.id}-${port.side}`;
               const isPortHovered = hoveredPort === portKey;
               return (
-                <g key={portKey}>
+                <g key={portKey} data-export-ignore="true">
                   {/* Large invisible hit area */}
                   <circle
                     cx={port.cx} cy={port.cy}
@@ -613,6 +710,7 @@ export const Canvas: React.FC = () => {
             return getResizeHandles(shape).map(h => (
               <rect
                 key={h.id}
+                data-export-ignore="true"
                 x={h.cx - HANDLE_SIZE / 2 / zoom} y={h.cy - HANDLE_SIZE / 2 / zoom}
                 width={HANDLE_SIZE / zoom} height={HANDLE_SIZE / zoom}
                 fill="white" stroke="#0066CC" strokeWidth={1.5 / zoom} rx={1 / zoom}
@@ -631,7 +729,7 @@ export const Canvas: React.FC = () => {
             const maxX = Math.max(...sel.map(s => s.x + s.width)) + 4;
             const maxY = Math.max(...sel.map(s => s.y + s.height)) + 4;
             return (
-              <rect x={minX} y={minY} width={maxX - minX} height={maxY - minY}
+              <rect data-export-ignore="true" x={minX} y={minY} width={maxX - minX} height={maxY - minY}
                 fill="none" stroke="#0066CC" strokeWidth={1.5 / zoom}
                 strokeDasharray={`${6 / zoom} ${3 / zoom}`} pointerEvents="none" />
             );
@@ -639,7 +737,7 @@ export const Canvas: React.FC = () => {
 
           {/* Selection rubber-band */}
           {selBox && (
-            <rect x={selBox.x} y={selBox.y} width={selBox.w} height={selBox.h}
+            <rect data-export-ignore="true" x={selBox.x} y={selBox.y} width={selBox.w} height={selBox.h}
               fill="rgba(0,102,204,0.07)" stroke="#0066CC"
               strokeWidth={1 / zoom} pointerEvents="none" />
           )}
@@ -647,6 +745,7 @@ export const Canvas: React.FC = () => {
           {/* Connection preview line */}
           {connectLine && (
             <line
+              data-export-ignore="true"
               x1={connectLine.x1} y1={connectLine.y1}
               x2={connectLine.x2} y2={connectLine.y2}
               stroke="#0066CC" strokeWidth={1.5 / zoom}
