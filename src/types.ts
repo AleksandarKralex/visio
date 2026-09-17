@@ -1,6 +1,6 @@
 export type ShapeType =
   // Basic
-  | 'rectangle' | 'rounded-rectangle' | 'circle' | 'ellipse'
+  | 'rectangle' | 'rounded-rectangle' | 'circle' | 'ellipse' | 'square' | 'line'
   | 'diamond' | 'triangle' | 'pentagon' | 'hexagon' | 'star'
   | 'parallelogram' | 'trapezoid' | 'cylinder' | 'cloud'
   // Flowchart

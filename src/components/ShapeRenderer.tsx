@@ -6,6 +6,14 @@ export function getShapePath(type: string, w: number, h: number): string {
     case 'rectangle':
       return `M 0 0 H ${w} V ${h} H 0 Z`;
 
+    // 'square' folosește exact același path ca 'rectangle' — se comportă
+    // identic la randare (fallback la default: mai jos), diferă doar
+    // dimensiunea implicită la creare (vezi store.ts addShape defaults).
+    case 'line':
+      // Diagonală colț-la-colț a cutiei de selecție — redimensionarea (h=0
+      // implicit) o înclină natural, ca la un instrument clasic de linie.
+      return `M 0 0 L ${w} ${h}`;
+
     case 'rounded-rectangle':
     case 'process': {
       const r = Math.min(8, w / 4, h / 4);
@@ -784,6 +792,10 @@ export const ShapeRenderer: React.FC<ShapePathProps> = ({ shape }) => {
           <path d={path} fill="none" stroke={style.stroke} strokeWidth={style.strokeWidth} strokeDasharray={style.strokeDasharray} />
           {label && <text x={w / 2} y={h + 14} fontSize={textStyle.fontSize} fontFamily={textStyle.fontFamily} fontWeight={textStyle.fontWeight} fill={textStyle.color} textAnchor="middle" dominantBaseline="hanging">{label}</text>}
         </>
+      ) : type === 'line' ? (
+        // Doar contur — nicio suprafață/fundal de umplut, spre deosebire de
+        // toate celelalte forme (care sunt poligoane închise).
+        <path d={path} fill="none" stroke={style.stroke} strokeWidth={style.strokeWidth} strokeDasharray={style.strokeDasharray} strokeLinecap="round" />
       ) : type === 'note' ? (
         <>
           <path d={path.split(' M ')[0]} fill={style.fill} stroke={style.stroke} strokeWidth={style.strokeWidth} strokeDasharray={style.strokeDasharray} />

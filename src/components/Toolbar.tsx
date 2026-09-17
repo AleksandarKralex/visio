@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useStore, EMBED_MAP_MODE } from '../store';
 import { ProcessMapLibrary } from './ProcessMapLibrary';
 import { exportDiagramAsPng, exportDiagramAsSvg, exportDiagramAsPdf, type PngScale } from '../utils/exportDiagram';
-import type { Tool } from '../types';
+import type { Tool, ShapeType } from '../types';
 
 const ToolIcon: React.FC<{
   tool: Tool; active: boolean; onClick: () => void; title: string;
@@ -231,6 +231,110 @@ const AlignDropdown: React.FC<{ selectedCount: number }> = ({ selectedCount }) =
               Selectează cel puțin 2 elemente pentru aliniere (3 pentru distribuire).
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Draw shape dropdown ──────────────────────────────────────────────────────────
+const DRAW_SHAPES: { type: ShapeType; label: string; icon: React.ReactNode }[] = [
+  {
+    type: 'rectangle', label: 'Rectangle', icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="1.5" y="3.5" width="13" height="9" rx="1" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    ),
+  },
+  {
+    type: 'square', label: 'Square', icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="3" y="3" width="10" height="10" rx="1" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    ),
+  },
+  {
+    type: 'line', label: 'Line', icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M2 13L14 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    type: 'circle', label: 'Circle', icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    ),
+  },
+  {
+    type: 'ellipse', label: 'Ellipse', icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <ellipse cx="8" cy="8" rx="6.5" ry="4" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    ),
+  },
+];
+
+const DrawShapeDropdown: React.FC = () => {
+  const { activeTool, setActiveTool } = useStore();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const active = DRAW_SHAPES.find(s => s.type === activeTool);
+
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    if (open) document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [open]);
+
+  const itemStyle = (isActive: boolean): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 10px',
+    border: 'none', borderRadius: 6, background: isActive ? '#EBF2FF' : 'transparent', cursor: 'pointer',
+    fontSize: 12, fontFamily: 'Inter, sans-serif', color: isActive ? '#0066CC' : '#374151',
+  });
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title="Desenează formă"
+        style={{
+          display: 'flex', alignItems: 'center', gap: 4,
+          height: 32, padding: '0 8px', borderRadius: 8,
+          border: '1px solid #e5e5ea', background: (open || active) ? '#EBF2FF' : '#fafafa',
+          cursor: 'pointer', color: (open || active) ? '#0066CC' : '#1a1a2e',
+          fontSize: 12, fontFamily: 'Inter, sans-serif', fontWeight: 500,
+          transition: 'all 0.12s', whiteSpace: 'nowrap',
+        }}
+      >
+        {active ? active.icon : DRAW_SHAPES[0].icon}
+        {active ? active.label : 'Draw Shape'}
+        <svg width="8" height="8" viewBox="0 0 8 8" fill="none" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
+          <path d="M1.5 3L4 5.5 6.5 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 9999,
+          background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 6, width: 150,
+        }}>
+          {DRAW_SHAPES.map(s => (
+            <button
+              key={s.type}
+              style={itemStyle(activeTool === s.type)}
+              onClick={() => { setActiveTool(s.type); setOpen(false); }}
+              onMouseEnter={e => { if (activeTool !== s.type) (e.currentTarget as HTMLElement).style.background = '#eff6ff'; }}
+              onMouseLeave={e => { if (activeTool !== s.type) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+            >
+              {s.icon}
+              {s.label}
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -532,6 +636,8 @@ export const Toolbar: React.FC = () => {
           {t.icon}
         </ToolIcon>
       ))}
+
+      <DrawShapeDropdown />
 
       <Divider />
 

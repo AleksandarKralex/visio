@@ -588,6 +588,8 @@ export const useStore = create<AppState>((set, get) => ({
       'rounded-rectangle': { w: 120, h: 80, label: 'Process' },
       circle: { w: 80, h: 80, label: 'Circle' },
       ellipse: { w: 120, h: 80, label: 'Ellipse' },
+      square: { w: 80, h: 80, label: 'Square' },
+      line: { w: 120, h: 0, label: '' },
       diamond: { w: 100, h: 80, label: 'Decision' },
       triangle: { w: 100, h: 90, label: 'Triangle' },
       pentagon: { w: 100, h: 90, label: 'Pentagon' },
